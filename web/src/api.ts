@@ -137,6 +137,7 @@ export function loadRun(id: string): Promise<RunRecord> {
 
 export function externalHref(value: string | null | undefined): string | null {
   if (!value) return null;
+  if (value.startsWith("/evidence/") || value.startsWith("/api/")) return value;
   try {
     const url = new URL(value);
     if (url.protocol === "https:") return value;

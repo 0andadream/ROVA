@@ -8,27 +8,40 @@ Give Rova a task, a budget and conditions. Rova finds who can do it. They only g
 
 ## Deployment status
 
-The contracts, verifier, providers, agent, and live-run UI are implemented. Foundry tests pass (22) and the ranking and verification unit tests pass (8). **Nothing has been deployed, and no payment has been sent.** The new wallets have 0 MON and 0 USDC.
+The app is live at [https://rova-production-f873.up.railway.app](https://rova-production-f873.up.railway.app). One hosted run has settled on Monad testnet. `pnpm showcase` (12 further settlements) has not been run. There is no backup video.
 
-This environment could not get testnet funds:
+| | |
+| --- | --- |
+| RovaEscrow | [`0xA7B310f397271D76A005a228A58F9e3035C455BC`](https://testnet.monadvision.com/address/0xA7B310f397271D76A005a228A58F9e3035C455BC) |
+| Deploy transaction | [`0x2e03a3ac42bb8cefaa645db39cfb740fb07d5dcd43a31de57101f2fb58c00b02`](https://testnet.monadvision.com/tx/0x2e03a3ac42bb8cefaa645db39cfb740fb07d5dcd43a31de57101f2fb58c00b02) |
+| Provider A identity | agent id `2033` |
+| Provider B identity | agent id `2034` |
+| Provider C identity | agent id `2035` |
 
-- [faucet.monad.xyz](https://faucet.monad.xyz) returns a Vercel security checkpoint (HTTP 429) to this client.
-- [QuickNode's Monad faucet](https://faucet.quicknode.com/monad/testnet) rejects these addresses with `Invalid ETH mainnet balance`.
-- Alchemy's faucet requires a mainnet ETH history.
-- Monad testnet USDC (`0x534b2f3A21130d7a60830c2Df862319e593943A3`) is Circle FiatToken. `mint` reverts with `FiatToken: caller is not a minter`.
-- Circle's faucet API supports `MONAD-TESTNET`, and it requires a Circle API key. None is configured here. The browser faucet is [faucet.circle.com](https://faucet.circle.com).
+A new Railway project was rejected with `Free plan resource provision limit exceeded`. The service `rova` was added inside the existing Diverge project. The Diverge service was not redeployed and [https://diverge.up.railway.app](https://diverge.up.railway.app) still answers. Deploy this app with `npx --yes @railway/cli up --service rova`. A bare `railway up` from a directory linked to the Diverge service would replace that app.
 
-Fund the two sending wallets, then run `pnpm run setup`. Do not invent balances or paste fake transaction hashes.
+The public Monad RPC allows `eth_getLogs` ranges of at most 100 blocks. Rankings and activity scan from the deploy block in those windows, about 8 requests per second, and keep the result in process memory.
+
+Evidence JSON is stored on the container disk at `/app/data`. A Railway volume was not attached (`railway volume add` panicked before creating one). A restart keeps the chain orders and drops the evidence files, so freshness and schema on the activity table need a run that happened on that container.
 
 | Role | Address | Needs |
 | --- | --- | --- |
-| Verifier (deploys escrow, settles, owns the ERC-8004 identities) | `0xe750B7D59fD895e8473df4729132dec46f244ADE` | at least 0.02 MON |
-| Buyer (approves USDC, creates orders, posts reputation) | `0xD1a330426dC19cb6a0F707A3904D63A052bc8EEc` | at least 0.02 MON and 0.41 USDC |
+| Verifier (deploys escrow, settles, owns the ERC-8004 identities) | `0xe750B7D59fD895e8473df4729132dec46f244ADE` | MON for gas |
+| Buyer (approves USDC, creates orders, posts reputation) | `0xD1a330426dC19cb6a0F707A3904D63A052bc8EEc` | MON for gas and USDC for orders |
 | Provider A, receives USDC only | `0xdd474E8316473D5919DBdfCd20f677e094842E96` | nothing |
 | Provider B, receives USDC only | `0xb507D09d97442DcD7745E93b79ef05Cae7962Cb6` | nothing |
 | Provider C, receives USDC only | `0x879F63f723BEC5CFeF4530b082498ba0b5Cd98A4` | nothing |
 
-`0.05` USDC is enough for `pnpm prove` (Provider B's `0.02` is refunded, Provider C keeps `0.03`). `pnpm showcase` adds 12 successful settlements and needs another `0.36` USDC. Private keys stay in `.env` (mode 0600, gitignored).
+Testnet USDC comes from [faucet.circle.com](https://faucet.circle.com) (USDC, Monad Testnet). The MON faucet does not drip USDC, and `mint` on `0x534b2f3A21130d7a60830c2Df862319e593943A3` reverts for anyone who is not a minter. Private keys stay in `.env` (mode 0600, gitignored) and in the `rova` service variables. `0.05` USDC is enough for one prove run. `pnpm showcase` needs another `0.36` USDC.
+
+Hosted run `run_mux2hlaf_5n161u` on 2026-10-06, demo mode on, budget `$0.05`:
+
+| Order | Provider | Result | Transaction |
+| --- | --- | --- | --- |
+| 1 | B, `$0.02` | Schema passed, freshness failed at 180s, SLA FAILED / REFUNDED | [refund](https://testnet.monadvision.com/tx/0xabdf0999d4dcdd858263692600a1c5e3f3151d86ffce7edf5927c7088b3bd2e5) · [feedback 0](https://testnet.monadvision.com/tx/0x600c787148ea9f72484115b0354021bcd19728f056dd6352c484ccd244807318) |
+| 2 | C, `$0.03` | VERIFIED / PAID | [settlement](https://testnet.monadvision.com/tx/0xf9ccc7ec3796e77f9bca988ddd422004344864f49b2ce9050e41f938152b2e77) · [feedback 100](https://testnet.monadvision.com/tx/0x01a3dc0adf47d3f00e30acc8ba05d3af7e10a1bfea5eaea5a7dba313db02ecb2) |
+
+Price-mode ranking stayed B, then C, then A. C's success rate is 1 and verified volume is `$0.03`. B's success rate is 0 and verified volume is `$0.00`.
 
 ## The problem
 
@@ -175,12 +188,12 @@ Stop `pnpm demo` before `pnpm prove` or `pnpm showcase`. Those commands use the 
 
 Close. Rova gives autonomous agents something payments alone don't provide: recourse through execution.
 
-A backup recording was not made. This environment has no browser capture, and testnet payments have not run.
+A backup recording was not made. This environment has no browser capture. The hosted run above is the on-chain record.
 
 ## Trust assumptions and limits
 
 - Demo providers are seeded by the Rova team. There is no public marketplace.
-- Payments are real Monad testnet USDC transactions once the wallets are funded. Until then there are none.
+- Payments are Monad testnet USDC. The hosted run above is one refund and one payment.
 - The verifier is one trusted key.
 - Verification covers machine-checkable conditions only. Rova does not establish semantic truth.
 - Reputation comes from a single buyer. Log-weighted volume only partly reduces self-dealing.
@@ -201,14 +214,14 @@ Not in this MVP: a public marketplace (Monad already has an API Hub), subcontrac
 ## Acceptance
 
 - [x] `RovaEscrow` implemented, with Foundry tests for create, balances, pass, fail, expiry, double settlement, non-verifier, early refund, allowance, and events
-- [ ] Deployed on Monad with a real payment token
-- [ ] Buyer can fund escrow; a pass pays the provider; a fail refunds the buyer, visible on the explorer
-- [ ] Failure reroutes to a new order and the fallback settles
+- [x] Deployed on Monad with testnet USDC. Escrow `0xA7B310f397271D76A005a228A58F9e3035C455BC`
+- [x] Buyer funded escrow; a fail refunded the buyer and a pass paid the provider. Both receipts succeeded on the escrow
+- [x] Failure rerouted to a new order and Provider C settled
 - [x] Verifier checks latency, freshness, schema, and a non-empty response (unit-tested; not yet against a live order)
 - [x] Three seeded providers; B can serve stale-but-valid JSON; the demo badge is in the UI
-- [ ] Frontend showing real order ids, hashes, and explorer links from a live run
+- [ ] Frontend showing real order ids, hashes, and explorer links from a live run. The hosted API and activity feed return them. The pages were not clicked in a browser
 - [x] `pnpm demo` starts providers, gateway, agent, and the frontend after setup
-- [ ] Full failure, refund, reroute, and settlement on chain
-- [ ] ERC-8004 identities and feedback that reference payment evidence
+- [x] Full failure, refund, reroute, and settlement on chain
+- [x] ERC-8004 identities 2033, 2034, and 2035, plus feedback that references the settlement transaction
 - [ ] 10 or more settlements moving the ranking table, with the recorded demo still starting at B
 - [x] README states the trust assumptions and distinguishes Rova from existing escrow projects

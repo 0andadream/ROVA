@@ -40,24 +40,90 @@ export type ProviderStats = {
 
 type ChainLog = { args: Record<string, unknown>; transactionHash: Hex };
 
-async function rangedLogs(event: unknown, deployment: Deployment): Promise<ChainLog[]> {
-  const client = publicClient();
-  const latest = await client.getBlockNumber();
-  const start = BigInt(deployment.deployBlock);
+// Public Monad RPC rejects eth_getLogs when toBlock - fromBlock is greater than 100,
+// and the same endpoint allows about 25 requests per second.
+const LOG_SPAN = 100n;
+const LOG_IN_FLIGHT = 4;
+const LOGS_PER_SECOND = 8;
+
+const logCache = new Map<string, { logs: ChainLog[]; next: bigint }>();
+const logInflight = new Map<string, Promise<ChainLog[]>>();
+const logTimes: number[] = [];
+let logsInFlight = 0;
+
+async function acquireLogSlot(): Promise<void> {
+  while (true) {
+    const now = Date.now();
+    while (logTimes.length > 0 && now - logTimes[0] >= 1000) logTimes.shift();
+    if (logsInFlight < LOG_IN_FLIGHT && logTimes.length < LOGS_PER_SECOND) {
+      logsInFlight += 1;
+      logTimes.push(now);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+}
+
+function releaseLogSlot(): void {
+  logsInFlight -= 1;
+}
+
+export function logRanges(start: bigint, latest: bigint, span = LOG_SPAN): Array<[bigint, bigint]> {
   if (start > latest) return [];
-  const span = 9_999n;
-  const logs: ChainLog[] = [];
+  const ranges: Array<[bigint, bigint]> = [];
   for (let from = start; from <= latest; from += span + 1n) {
     const to = from + span > latest ? latest : from + span;
-    const batch = await client.getLogs({
-      address: deployment.escrow,
-      event: event as never,
-      fromBlock: from,
-      toBlock: to,
-    });
-    logs.push(...(batch as unknown as ChainLog[]));
+    ranges.push([from, to]);
   }
-  return logs;
+  return ranges;
+}
+
+async function scanLogs(key: string, event: unknown, deployment: Deployment): Promise<ChainLog[]> {
+  const client = publicClient();
+  const latest = await client.getBlockNumber();
+  const cached = logCache.get(key) ?? { logs: [], next: BigInt(deployment.deployBlock) };
+  if (cached.next > latest) return cached.logs;
+
+  const ranges = logRanges(cached.next, latest);
+  const batches = await Promise.all(
+    ranges.map(async ([from, to]) => {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await acquireLogSlot();
+        try {
+          return await client.getLogs({
+            address: deployment.escrow,
+            event: event as never,
+            fromBlock: from,
+            toBlock: to,
+          });
+        } catch (error) {
+          const detail = error && typeof error === "object" && "details" in error ? String(error.details) : "";
+          if (!/25\/sec|rate limit|429/i.test(detail) || attempt === 3) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+        } finally {
+          releaseLogSlot();
+        }
+      }
+      throw new Error("eth_getLogs failed after retries.");
+    }),
+  );
+  const fresh: ChainLog[] = [];
+  for (const batch of batches) fresh.push(...(batch as unknown as ChainLog[]));
+
+  const stored = { logs: cached.logs.concat(fresh), next: latest + 1n };
+  logCache.set(key, stored);
+  return stored.logs;
+}
+
+function rangedLogs(label: string, event: unknown, deployment: Deployment): Promise<ChainLog[]> {
+  const key = `${deployment.escrow}:${label}`;
+  const existing = logInflight.get(key);
+  if (existing) return existing;
+  const job = scanLogs(key, event, deployment).finally(() => {
+    if (logInflight.get(key) === job) logInflight.delete(key);
+  });
+  logInflight.set(key, job);
+  return job;
 }
 
 export async function readFeedback(agentId: string): Promise<{ orders: number; successRate: number }> {
@@ -84,7 +150,7 @@ export async function readFeedback(agentId: string): Promise<{ orders: number; s
 
 export async function readStats(deployment = loadDeployment()): Promise<Map<string, ProviderStats>> {
   const stats = new Map<string, ProviderStats>();
-  const settled = await rangedLogs(settledEvent, deployment);
+  const settled = await rangedLogs("settled", settledEvent, deployment);
   for (const id of ["A", "B", "C"] as const) {
     const provider = deployment.providers[id];
     const feedback = await readFeedback(provider.agentId);
@@ -139,10 +205,10 @@ const RESULT: Record<string, string> = {
 export async function listActivity(): Promise<ActivityRow[]> {
   const deployment = loadDeployment();
   const [created, settled, refunded, expired] = await Promise.all([
-    rangedLogs(createdEvent, deployment),
-    rangedLogs(settledEvent, deployment),
-    rangedLogs(refundedEvent, deployment),
-    rangedLogs(expiredEvent, deployment),
+    rangedLogs("created", createdEvent, deployment),
+    rangedLogs("settled", settledEvent, deployment),
+    rangedLogs("refunded", refundedEvent, deployment),
+    rangedLogs("expired", expiredEvent, deployment),
   ]);
   const rows = new Map<string, {
     provider: Address;
@@ -204,7 +270,7 @@ export async function listActivity(): Promise<ActivityRow[]> {
         latencyMs: evidence?.committed?.latencyMs ?? null,
         freshness,
         schema: evidence?.committed?.schemaOk === undefined ? "—" : evidence.committed.schemaOk ? "pass" : "fail",
-        evidenceUrl: evidence ? `${gatewayBase()}/evidence/${orderId}` : null,
+        evidenceUrl: evidence ? `/evidence/${orderId}` : null,
         txHash: row.txHash,
         txUrl: txUrl(row.txHash),
         feedbackTx,

@@ -8,7 +8,7 @@
     "prove": "tsx scripts/prove.ts",
     "showcase": "tsx scripts/showcase.ts",
     "test:contracts": "forge test --root contracts",
-    "test:unit": "tsx --test config/ranking.test.ts gateway/src/verify.test.ts",
+    "test:unit": "tsx --test config/ranking.test.ts gateway/src/verify.test.ts agent/src/chain.test.ts",
     "providers": "tsx providers/src/index.ts",
     "gateway": "tsx gateway/src/index.ts",
     "agent": "tsx agent/src/index.ts",
