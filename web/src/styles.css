@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --color-ink: #f4f0e6;
+  --color-paper: #0c0b09;
+  --color-mute: #9c9488;
+  --color-line: rgba(244, 240, 230, 0.16);
+  --color-fail: #ff3b30;
+  --color-pass: #e2ff57;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.stage-glow {
+  background:
+    radial-gradient(900px 480px at 20% 80%, rgba(226, 255, 87, 0.08), transparent 60%),
+    radial-gradient(700px 420px at 80% 20%, rgba(255, 59, 48, 0.08), transparent 55%),
+    linear-gradient(180deg, #141210 0%, #0c0b09 70%);
+  animation: drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.06) translate3d(0, -2%, 0);
+  }
+}
+
+.intro-blur {
+  filter: blur(1.1px);
+  opacity: 0.62;
+}
