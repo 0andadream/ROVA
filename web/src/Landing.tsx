@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Logo } from "./Logo";
 
 const LINE = "Give me a task, a budget and conditions. I'll find who can do it. They only get paid if it works.";
 const PROJECT = "https://github.com/0andadream/ROVA";
@@ -26,9 +27,13 @@ export function Landing({ go }: { go: (path: string) => void }) {
   }
 
   return (
-    <main className="relative flex min-h-screen items-end overflow-hidden">
+    <main className="relative min-h-screen overflow-hidden">
       <div className="stage-glow pointer-events-none absolute inset-0" aria-hidden="true" />
-      <div className="relative z-10 flex w-full flex-col gap-8 px-5 pb-16 pt-28 md:px-10 md:pb-20">
+      <div className="relative z-10 flex min-h-screen w-full flex-col justify-between px-5 pb-16 pt-24 md:px-10 md:pb-20">
+        <div className="flex w-full min-w-0 flex-1 items-center justify-center">
+          <Logo labelled className="logo-glow h-auto w-full max-w-[680px]" />
+        </div>
+        <div className="flex w-full flex-col gap-8">
         <p className="intro-blur max-w-xl text-[26px] leading-snug">
           Hey, I'm Rova, your agent that makes sure agents get what they pay for.
         </p>
@@ -50,6 +55,7 @@ export function Landing({ go }: { go: (path: string) => void }) {
           <button className="rounded-full border border-line px-4 py-2 text-[15px]" onClick={copy}>
             {copied ? "Copied" : "github.com/0andadream/ROVA"}
           </button>
+        </div>
         </div>
       </div>
     </main>

@@ -2,10 +2,10 @@
 
 @theme {
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --color-ink: #f4f0e6;
-  --color-paper: #0c0b09;
-  --color-mute: #9c9488;
-  --color-line: rgba(244, 240, 230, 0.16);
+  --color-ink: #ffffff;
+  --color-paper: #000000;
+  --color-mute: #a3a3a3;
+  --color-line: rgba(255, 255, 255, 0.16);
   --color-fail: #ff3b30;
   --color-pass: #e2ff57;
 }
@@ -35,19 +35,16 @@ a {
 
 .stage-glow {
   background:
-    radial-gradient(900px 480px at 20% 80%, rgba(226, 255, 87, 0.08), transparent 60%),
-    radial-gradient(700px 420px at 80% 20%, rgba(255, 59, 48, 0.08), transparent 55%),
-    linear-gradient(180deg, #141210 0%, #0c0b09 70%);
-  animation: drift 18s ease-in-out infinite alternate;
+    radial-gradient(640px 280px at 50% 42%, rgba(255, 255, 255, 0.07), transparent 70%),
+    #000000;
 }
 
-@keyframes drift {
-  from {
-    transform: scale(1) translate3d(0, 0, 0);
-  }
-  to {
-    transform: scale(1.06) translate3d(0, -2%, 0);
-  }
+.logo-glow {
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.55)) drop-shadow(0 0 28px rgba(255, 255, 255, 0.22));
+}
+
+.logo-glow-sm {
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4));
 }
 
 .intro-blur {

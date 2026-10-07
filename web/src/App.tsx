@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadMeta, type Meta } from "./api";
+import { Logo } from "./Logo";
 import { About } from "./About";
 import { Activity } from "./Activity";
 import { Landing } from "./Landing";
@@ -57,8 +58,8 @@ export function App() {
   return (
     <div className="min-h-screen">
       <header className={`fixed inset-x-0 top-0 z-20 flex items-center justify-between px-5 md:px-8 ${landing ? "mix-blend-normal" : "bg-paper/80 backdrop-blur-md"}`}>
-        <button className="py-4 text-[23px] tracking-tight" onClick={() => navigate("/")}>
-          ROVA® <span aria-hidden="true">✳︎</span>
+        <button className="min-w-0 py-4" aria-label="ROVA" onClick={() => navigate("/")}>
+          <Logo className="logo-glow-sm h-7 w-auto max-w-[42vw] md:h-8 md:max-w-none" />
         </button>
         <nav className="hidden items-center gap-8 text-[23px] md:flex">
           {LINKS.map((link) => (
