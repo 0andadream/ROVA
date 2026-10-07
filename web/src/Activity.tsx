@@ -16,6 +16,7 @@ export function Activity() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [rows, setRows] = useState<ActivityRow[] | null>(null);
   const [badge, setBadge] = useState<string | null>(null);
+  const [faulty, setFaulty] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function Activity() {
           if (gone) return;
           setRows(next.rows);
           setBadge(next.demoBadge);
+          setFaulty(next.faultyBadge);
           setError(null);
         })
         .catch((reason: Error) => {
@@ -48,7 +50,10 @@ export function Activity() {
   return (
     <main className="px-5 pb-16 pt-24 md:px-8">
       <h1 className="text-[26px]">Activity</h1>
-      {badge && <p className="mt-4 inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{badge}</p>}
+      <div className="mt-4 flex flex-wrap gap-3">
+        {badge && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{badge}</p>}
+        {faulty && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{faulty}</p>}
+      </div>
       {error && <p className="mt-4 text-[15px] text-fail">{error}</p>}
       {rows && rows.length === 0 && <p className="mt-6 text-[15px] text-mute">No orders on this escrow yet.</p>}
       {rows && rows.length > 0 && (

@@ -1,19 +1,37 @@
-import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { Hono } from "hono";
 import { getAddress, isAddress, type Address, type Hex } from "viem";
 import { escrowAbi, ORDER_STATUS } from "../../config/abis.ts";
-import { keccakJson } from "../../config/canonical.ts";
-import { assertNetwork, publicClient, walletFrom, writeContract } from "../../config/clients.ts";
+import { publicClient, walletFrom, writeContract } from "../../config/clients.ts";
+import { assertNetwork } from "../../config/clients.ts";
 import { evidenceFile, readJson, writeJson } from "../../config/files.ts";
 import { loadDeployment, requireKey, requireToken } from "../../config/env.ts";
 import { explain } from "../../config/explain.ts";
 import { monad } from "../../config/monad.ts";
-import { verifyResponse, type SimpleSchema } from "./verify.ts";
+import { GATEWAY_PORT, QUORUM_THRESHOLD, VERIFIER_COUNT, faultyBadge, verifierUrl } from "../../config/providers.ts";
+import { assertEscrowMatchesDeployment } from "../../config/quorum.ts";
+import type { Verdict } from "./verdict.ts";
+import type { SimpleSchema } from "./verify.ts";
 
-const port = Number(process.env.GATEWAY_PORT ?? 4200);
+const port = Number(process.env.GATEWAY_PORT ?? GATEWAY_PORT);
 const app = new Hono();
 
-app.get("/health", (c) => c.json({ ok: true, service: "gateway" }));
+function errorName(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const record = error as { errorName?: string; cause?: unknown };
+  if (typeof record.errorName === "string") return record.errorName;
+  return errorName(record.cause);
+}
+
+app.get("/health", (c) =>
+  c.json({
+    ok: true,
+    service: "coordinator",
+    threshold: QUORUM_THRESHOLD,
+    verifiers: VERIFIER_COUNT,
+    faultyBadge: faultyBadge(),
+  }),
+);
 
 app.get("/evidence/:orderId", (c) => {
   const record = readJson(evidenceFile(c.req.param("orderId")));
@@ -33,9 +51,7 @@ app.post("/execute", async (c) => {
     const schema = body.schema as SimpleSchema;
     if (!schema || typeof schema !== "object") throw new Error("schema is required");
     if (!isAddress(body.providerAddress)) throw new Error("provider address is invalid");
-    const providerAddress = getAddress(body.providerAddress);
-
-    await assertNetwork();
+    const providerAddress = getAddress(body.providerAddress as Address);
     const deployment = loadDeployment();
     const known = Object.values(deployment.providers).find((provider) => provider.url === providerUrl);
     if (!known || getAddress(known.address) !== providerAddress) {
@@ -50,121 +66,56 @@ app.post("/execute", async (c) => {
       args: [orderId],
     });
     if (Number(order.status) !== 1) throw new Error(`Order ${orderId} is not funded.`);
-    if (getAddress(order.provider) !== providerAddress) throw new Error("Order provider does not match the request.");
-    if (getAddress(order.agent) !== deployment.agent) throw new Error("Order agent does not match the Rova buyer.");
-    if (getAddress(order.token) !== getAddress(monad.paymentToken.address)) throw new Error("Order token is not the configured USDC.");
-    const schemaHash = keccakJson(schema);
-    if (schemaHash.toLowerCase() !== order.schemaHash.toLowerCase()) {
-      throw new Error("Schema hash does not match the funded order.");
-    }
+    const buyer = walletFrom(requireKey("AGENT_PRIVATE_KEY"));
+    if (buyer.account.address !== deployment.agent) throw new Error("Buyer key does not match the deployment.");
 
-    const block = await client.getBlock();
-    const { account, wallet } = walletFrom(requireKey("VERIFIER_PRIVATE_KEY"));
-    if (account.address !== deployment.verifier) throw new Error("Verifier key does not match the deployed escrow.");
-
-    let settlementTx: Hex;
-    let passed = false;
-    let verification = verifyResponse({
-      httpOk: false,
-      bodyText: "",
-      latencyMs: 0,
-      maxLatencyMs: Number(order.maxLatencyMs),
-      maxAgeSec: Number(order.maxAgeSec),
-      nowSec: Number(block.timestamp),
-      schema,
-    });
-
-    if (block.timestamp > order.expiresAt) {
-      const sent = await writeContract({
-        wallet,
-        account,
+    const relay = async (functionName: "settle" | "refundExpired", args: readonly unknown[]) =>
+      writeContract({
+        wallet: buyer.wallet,
+        account: buyer.account,
         address: deployment.escrow,
         abi: escrowAbi,
-        functionName: "refundExpired",
-        args: [orderId],
+        functionName,
+        args,
       });
-      settlementTx = sent.transactionHash;
-      verification = {
-        ...verification,
-        reasons: ["order expired before the provider response"],
-      };
-    } else {
-      const started = Date.now();
-      let httpOk = false;
-      let bodyText = "";
-      let fetchError = "";
-      try {
-        const response = await fetch(`${providerUrl}/task`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            orderId: orderId.toString(),
-            fundingTx,
-            task: "eth-usd",
-          }),
-          signal: AbortSignal.timeout(Number(order.maxLatencyMs) + 1500),
-        });
-        httpOk = response.ok;
-        bodyText = await response.text();
-      } catch (error) {
-        httpOk = false;
-        bodyText = "";
-        fetchError = explain(error);
-      }
-      const finished = Date.now();
-      verification = verifyResponse({
-        httpOk,
-        bodyText,
-        latencyMs: finished - started,
-        maxLatencyMs: Number(order.maxLatencyMs),
-        maxAgeSec: Number(order.maxAgeSec),
-        nowSec: Math.floor(finished / 1000),
-        schema,
-      });
-      if (fetchError) verification.reasons.push(fetchError);
-      passed = verification.ok;
-      const committed = {
-        ageSec: verification.ageSec,
-        amount: order.amount.toString(),
-        freshnessOk: verification.freshnessOk,
-        latencyMs: verification.latencyMs,
-        latencyOk: verification.latencyOk,
-        maxAgeSec: Number(order.maxAgeSec),
-        maxLatencyMs: Number(order.maxLatencyMs),
-        nonEmpty: verification.nonEmpty,
-        orderId: orderId.toString(),
-        passed,
-        provider: providerAddress,
-        reasons: verification.reasons,
-        requestOk: verification.requestOk,
-        response: verification.response,
-        schemaOk: verification.schemaOk,
-        timestamp: verification.timestamp,
-      };
-      const evidenceHash = keccakJson(committed);
-      const sent = await writeContract({
-        wallet,
-        account,
-        address: deployment.escrow,
-        abi: escrowAbi,
-        functionName: "settle",
-        args: [orderId, passed, evidenceHash],
-      });
-      settlementTx = sent.transactionHash;
+
+    const readStatus = async () => {
       const after = await client.readContract({
         address: deployment.escrow,
         abi: escrowAbi,
         functionName: "getOrder",
         args: [orderId],
       });
-      const status = ORDER_STATUS[Number(after.status)] ?? "UNKNOWN";
-      const expected = passed ? "SETTLED" : "REFUNDED";
-      if (status !== expected) {
-        throw new Error(`Settlement transaction ${settlementTx} left order ${orderId} as ${status}.`);
+      return ORDER_STATUS[Number(after.status)] ?? "UNKNOWN";
+    };
+
+    const finishExpired = async (reasons: string[]) => {
+      let settlementTx: Hex;
+      try {
+        const sent = await relay("refundExpired", [orderId]);
+        settlementTx = sent.transactionHash;
+      } catch (error) {
+        if (errorName(error) !== "NotExpired" && errorName(error) !== "InvalidOrder") throw error;
+        const current = await readStatus();
+        if (current !== "EXPIRED_REFUNDED" && current !== "REFUNDED" && current !== "SETTLED") throw error;
+        throw new Error(`Order ${orderId} is already ${current}.`);
+      }
+      const status = await readStatus();
+      if (status !== "EXPIRED_REFUNDED") {
+        throw new Error(`refundExpired left order ${orderId} as ${status}.`);
       }
       const record = {
-        committed,
-        evidenceHash,
+        committed: {
+          ageSec: null,
+          freshnessOk: false,
+          latencyMs: 0,
+          schemaOk: false,
+          passed: false,
+          reasons,
+          orderId: orderId.toString(),
+        },
+        verdicts: [],
+        quorum: null,
         settlementTx,
         fundingTx,
         status,
@@ -174,50 +125,110 @@ app.post("/execute", async (c) => {
       };
       writeJson(evidenceFile(orderId.toString()), record);
       return c.json({
-        passed,
+        passed: false,
         status,
-        evidenceHash,
+        evidenceHash: null,
+        evidenceHashes: [],
+        signers: [],
         settlementTx,
         evidenceUrl: `/evidence/${orderId}`,
-        latencyMs: verification.latencyMs,
-        schemaOk: verification.schemaOk,
-        freshnessOk: verification.freshnessOk,
-        ageSec: verification.ageSec,
-        timestamp: verification.timestamp,
-        reasons: verification.reasons,
-        response: verification.response,
+        latencyMs: 0,
+        schemaOk: false,
+        freshnessOk: false,
+        ageSec: null,
+        timestamp: null,
+        reasons,
+        response: null,
         providerId: known.id,
+        verdicts: [],
       });
+    };
+
+    const block = await client.getBlock();
+    if (block.timestamp > order.expiresAt) {
+      return await finishExpired(["order expired before the verifiers were asked"]);
     }
 
-    const after = await client.readContract({
-      address: deployment.escrow,
-      abi: escrowAbi,
-      functionName: "getOrder",
-      args: [orderId],
+    const token = requireToken();
+    const requests = [1, 2, 3].map(async (index) => {
+      const response = await fetch(`${verifierUrl(index)}/verdict`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          orderId: orderId.toString(),
+          providerUrl,
+          providerAddress,
+          fundingTx,
+          schema,
+        }),
+        signal: AbortSignal.timeout(Number(order.maxLatencyMs) + 8_000),
+      });
+      const payload = (await response.json()) as Verdict & { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `Verifier ${index} refused the order.`);
+      return payload;
     });
-    const status = ORDER_STATUS[Number(after.status)] ?? "UNKNOWN";
-    const committed = {
-      ageSec: null,
-      amount: order.amount.toString(),
-      freshnessOk: false,
-      latencyMs: 0,
-      latencyOk: false,
-      maxAgeSec: Number(order.maxAgeSec),
-      maxLatencyMs: Number(order.maxLatencyMs),
-      nonEmpty: false,
-      orderId: orderId.toString(),
-      passed: false,
-      provider: providerAddress,
-      reasons: verification.reasons,
-      requestOk: false,
-      response: null,
-      schemaOk: false,
-      timestamp: null,
-    };
+    const settledAttempts = await Promise.allSettled(requests);
+    const verdicts: Verdict[] = [];
+    const failures: string[] = [];
+    for (const attempt of settledAttempts) {
+      if (attempt.status === "fulfilled") verdicts.push(attempt.value);
+      else failures.push(explain(attempt.reason));
+    }
+    const unique = new Map<string, Verdict>();
+    for (const verdict of verdicts) unique.set(getAddress(verdict.signer), verdict);
+    const distinct = [...unique.values()];
+    const groups = new Map<string, Verdict[]>();
+    for (const verdict of distinct) {
+      const key = verdict.passed ? "pass" : "fail";
+      groups.set(key, [...(groups.get(key) ?? []), verdict]);
+    }
+    const winners = [...groups.values()].find((group) => group.length >= QUORUM_THRESHOLD);
+    if (!winners) {
+      const now = await client.getBlock();
+      if (now.timestamp > order.expiresAt) {
+        return await finishExpired(["quorum missed the order expiry", ...failures]);
+      }
+      throw new Error(
+        `No ${QUORUM_THRESHOLD}-of-${VERIFIER_COUNT} quorum. Votes: ${distinct
+          .map((verdict) => `#${verdict.index} ${verdict.passed ? "pass" : "fail"}`)
+          .join(", ") || "none"}. ${failures.join(" ")}`.trim(),
+      );
+    }
+    winners.sort((left, right) => (left.signer.toLowerCase() < right.signer.toLowerCase() ? -1 : 1));
+    const passed = winners[0].passed;
+    const evidenceHashes = winners.map((verdict) => verdict.evidenceHash);
+    const signatures = winners.map((verdict) => verdict.signature);
+    let settlementTx: Hex;
+    try {
+      const sent = await relay("settle", [orderId, passed, evidenceHashes, signatures]);
+      settlementTx = sent.transactionHash;
+    } catch (error) {
+      if (errorName(error) === "Expired") {
+        return await finishExpired(["settlement reverted because the order expired during probing"]);
+      }
+      throw error;
+    }
+    const status = await readStatus();
+    const expected = passed ? "SETTLED" : "REFUNDED";
+    if (status !== expected) {
+      throw new Error(`Settlement transaction ${settlementTx} left order ${orderId} as ${status}.`);
+    }
+    const representative = winners[0];
     const record = {
-      committed,
-      evidenceHash: keccakJson(committed),
+      committed: representative.evidence,
+      evidenceHash: representative.evidenceHash,
+      evidenceHashes,
+      signers: winners.map((verdict) => verdict.signer),
+      verdicts: distinct,
+      quorum: {
+        passed,
+        threshold: QUORUM_THRESHOLD,
+        signers: winners.map((verdict) => verdict.signer),
+        evidenceHashes,
+      },
       settlementTx,
       fundingTx,
       status,
@@ -227,19 +238,29 @@ app.post("/execute", async (c) => {
     };
     writeJson(evidenceFile(orderId.toString()), record);
     return c.json({
-      passed: false,
+      passed,
       status,
-      evidenceHash: record.evidenceHash,
+      evidenceHash: representative.evidenceHash,
+      evidenceHashes,
+      signers: winners.map((verdict) => verdict.signer),
       settlementTx,
       evidenceUrl: `/evidence/${orderId}`,
-      latencyMs: 0,
-      schemaOk: false,
-      freshnessOk: false,
-      ageSec: null,
-      timestamp: null,
-      reasons: verification.reasons,
-      response: null,
+      latencyMs: representative.latencyMs,
+      schemaOk: representative.schemaOk,
+      freshnessOk: representative.freshnessOk,
+      ageSec: representative.ageSec,
+      timestamp: representative.timestamp,
+      reasons: representative.reasons,
+      response: representative.response,
       providerId: known.id,
+      verdicts: distinct.map((verdict) => ({
+        index: verdict.index,
+        signer: verdict.signer,
+        passed: verdict.passed,
+        latencyMs: verdict.latencyMs,
+        signature: verdict.signature,
+        faulty: verdict.faulty,
+      })),
     });
   } catch (error) {
     return c.json({ error: explain(error) }, 500);
@@ -247,6 +268,9 @@ app.post("/execute", async (c) => {
 });
 
 await assertNetwork();
+await assertEscrowMatchesDeployment();
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port }, (info) => {
-  console.log(`gateway http://127.0.0.1:${info.port}`);
+  console.log(`coordinator http://127.0.0.1:${info.port}`);
+  const badge = faultyBadge();
+  if (badge) console.log(badge);
 });

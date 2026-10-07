@@ -43,8 +43,14 @@ function start(label, command, args, env) {
 
 const stale = process.env.DEMO_STALE ?? "1";
 const publicPort = process.env.PORT;
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 start("providers", tsx, [path.join(root, "providers/src/index.ts")], { DEMO_STALE: stale });
+for (const index of [1, 2, 3]) {
+  start(`verifier ${index}`, tsx, [path.join(root, "gateway/src/verifier.ts")], { VERIFIER_INDEX: String(index) });
+  await pause(800);
+}
 start("gateway", tsx, [path.join(root, "gateway/src/index.ts")], {});
+await pause(800);
 start("agent", tsx, [path.join(root, "agent/src/index.ts")], {});
 
 if (publicPort) {
@@ -56,6 +62,8 @@ if (publicPort) {
 console.log("ROVA demo");
 console.log(publicPort ? `Listening on 0.0.0.0:${publicPort}` : "Live run: http://127.0.0.1:5173/run");
 console.log(stale === "1" ? "Demo mode: Provider B serving stale data" : "Demo stale switch is off");
+if (process.env.FAULTY_VERIFIER) console.log(`Demo mode: Verifier #${process.env.FAULTY_VERIFIER} is faulty`);
+console.log("Three verifier processes and the coordinator share this host.");
 
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));

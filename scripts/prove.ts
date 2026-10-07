@@ -8,7 +8,7 @@ import { monad, txUrl } from "../config/monad.ts";
 import { ETH_USD_SCHEMA } from "../config/task.ts";
 import { readOrder } from "../agent/src/chain.ts";
 import { executeTask } from "../agent/src/execute.ts";
-import { startTsx, stop, waitHealth } from "./services.ts";
+import { ensureCoordinator, ensureVerifiers, startTsx, stop, waitHealth } from "./services.ts";
 
 loadEnv();
 
@@ -46,15 +46,8 @@ async function main(): Promise<void> {
     throw new Error("Provider B is not serving stale data. Stop the other provider process and rerun pnpm prove.");
   }
 
-  let gateway = null;
-  const gatewayUp = await waitHealth("http://127.0.0.1:4200/health", (body) => (body as { ok?: boolean }).ok === true, 2);
-  if (!gatewayUp) {
-    gateway = startTsx("gateway/src/index.ts", {});
-    if (!(await waitHealth("http://127.0.0.1:4200/health", (body) => (body as { ok?: boolean }).ok === true))) {
-      stop(gateway);
-      throw new Error("Verifier gateway did not start.");
-    }
-  }
+  await ensureVerifiers(null);
+  const gateway = await ensureCoordinator(null);
 
   const deployment = loadDeployment();
   const before = {
@@ -99,6 +92,19 @@ async function main(): Promise<void> {
     expect(evidence?.committed?.freshnessOk === false, "Provider B freshness did not fail");
     expect((evidence?.committed?.ageSec ?? 0) > 60, "Provider B timestamp was not stale");
   }
+  const quorum = run.steps.filter((step) => step.kind === "quorum");
+  expect(quorum.length === 2, `expected 2 quorum steps, got ${quorum.length}`);
+  expect(quorum[0]?.title === "3 of 3 FAIL, refunded", `first quorum was ${quorum[0]?.title}`);
+  expect(quorum[1]?.title === "3 of 3 PASS, paid", `second quorum was ${quorum[1]?.title}`);
+  for (const step of quorum) {
+    expect(step.verdicts?.length === 3, `quorum step has ${step.verdicts?.length ?? 0} verdicts`);
+    const signatures = new Set(step.verdicts?.map((verdict) => verdict.signature));
+    expect(signatures.size === 3, "quorum signatures were not distinct");
+    for (const verdict of step.verdicts ?? []) {
+      expect(verdict.signature.startsWith("0x") && verdict.signature.length === 132, "verdict signature is not a 65-byte hex signature");
+      expect(verdict.faulty === false, "prove ran with a faulty verifier");
+    }
+  }
   const reputation = run.steps.filter((step) => step.kind === "reputation" && step.txHash);
   expect(reputation.length === 2, `expected 2 reputation transactions, got ${reputation.length}`);
   for (const step of reputation) console.log(`Reputation ${txUrl(step.txHash!)}`);
@@ -119,6 +125,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   console.log("Prove passed: B refunded, C paid, balances match, reputation posted.");
+  process.exit(0);
 }
 
 main().catch((error) => {

@@ -56,7 +56,9 @@ export type Deployment = {
   escrow: Address;
   deployTx: Hex;
   deployBlock: string;
-  verifier: Address;
+  threshold: number;
+  verifiers: Address[];
+  identityOwner: Address;
   agent: Address;
   providers: Record<"A" | "B" | "C", SeedProvider>;
 };
@@ -71,12 +73,19 @@ export function loadDeployment(): Deployment {
   if (parsed.chainId !== monad.chainId) {
     throw new Error(`Deployment chain ${parsed.chainId} does not match configured chain ${monad.chainId}.`);
   }
-  if (!isAddress(parsed.escrow) || !isAddress(parsed.verifier) || !isAddress(parsed.agent)) {
+  if (!isAddress(parsed.escrow) || !isAddress(parsed.identityOwner) || !isAddress(parsed.agent)) {
     throw new Error("config/deployments.json has an invalid address.");
   }
+  if (parsed.threshold !== 2 || !Array.isArray(parsed.verifiers) || parsed.verifiers.length !== 3) {
+    throw new Error("config/deployments.json is not a 2-of-3 quorum deployment. Run pnpm run setup.");
+  }
   parsed.escrow = getAddress(parsed.escrow);
-  parsed.verifier = getAddress(parsed.verifier);
+  parsed.identityOwner = getAddress(parsed.identityOwner);
   parsed.agent = getAddress(parsed.agent);
+  parsed.verifiers = parsed.verifiers.map((verifier) => {
+    if (!isAddress(verifier)) throw new Error("config/deployments.json has an invalid verifier address.");
+    return getAddress(verifier);
+  });
   for (const id of ["A", "B", "C"] as const) {
     const provider = parsed.providers[id];
     if (!provider || !isAddress(provider.address)) throw new Error(`Provider ${id} is missing from deployments.json.`);

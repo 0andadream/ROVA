@@ -1,21 +1,51 @@
+import path from "node:path";
 import { getAddress, parseAbiItem, type Address, type Hex } from "viem";
 import { escrowAbi, ORDER_STATUS, reputationAbi } from "../../config/abis.ts";
 import { publicClient } from "../../config/clients.ts";
-import { evidenceFile, readJson } from "../../config/files.ts";
-import { loadDeployment, type Deployment } from "../../config/env.ts";
+import { evidenceFile, readJson, writeJson } from "../../config/files.ts";
+import { loadDeployment, root, type Deployment } from "../../config/env.ts";
 import { formatUsdc } from "../../config/money.ts";
 import { monad, txUrl } from "../../config/monad.ts";
 import { gatewayBase } from "../../config/providers.ts";
 
 const settledEvent = parseAbiItem(
-  "event OrderSettled(uint256 indexed id, address indexed provider, uint256 amount, bytes32 evidenceHash)",
+  "event OrderSettled(uint256 indexed id, address indexed provider, uint256 amount, bytes32[] evidenceHashes, address[] signers)",
 );
 const refundedEvent = parseAbiItem(
-  "event OrderRefunded(uint256 indexed id, address indexed agent, uint256 amount, bytes32 evidenceHash)",
+  "event OrderRefunded(uint256 indexed id, address indexed agent, uint256 amount, bytes32[] evidenceHashes, address[] signers)",
 );
 const expiredEvent = parseAbiItem(
   "event OrderExpiredRefunded(uint256 indexed id, address indexed agent, uint256 amount)",
 );
+const feedbackEvent = parseAbiItem(
+  "event NewFeedback(uint256 indexed agentId, address indexed clientAddress, uint64 feedbackIndex, int128 value, uint8 valueDecimals, string indexed indexedTag1, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)",
+);
+
+type CompactEvidence = {
+  orderId?: string;
+  passed?: boolean;
+  schemaOk?: boolean;
+  freshnessOk?: boolean;
+  ageSec?: number | null;
+  maxAgeSec?: number;
+  latencyMs?: number;
+  evidenceHashes?: string[];
+  signers?: string[];
+  settlementTx?: string;
+  verdicts?: unknown[];
+};
+
+function compactFromUri(uri: string): CompactEvidence | null {
+  const marker = "data:application/json,";
+  if (!uri.startsWith(marker)) return null;
+  try {
+    const parsed = JSON.parse(decodeURIComponent(uri.slice(marker.length))) as CompactEvidence;
+    if (!parsed || typeof parsed.orderId !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 const createdEvent = parseAbiItem(
   "event OrderCreated(uint256 indexed id, address indexed agent, address indexed provider, address token, uint256 amount, uint256 maxLatencyMs, uint256 maxAgeSec, bytes32 schemaHash, uint256 expiresAt)",
 );
@@ -48,6 +78,50 @@ const LOGS_PER_SECOND = 8;
 
 const logCache = new Map<string, { logs: ChainLog[]; next: bigint }>();
 const logInflight = new Map<string, Promise<ChainLog[]>>();
+const logCachePath = path.join(root, "data", "log-cache.json");
+let rememberedEscrow = "";
+
+type DiskCache = { escrow: string; entries: Record<string, { next: string; logs: unknown }> };
+
+function revive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(revive);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.__bigint === "string" && Object.keys(record).length === 1) return BigInt(record.__bigint);
+    return Object.fromEntries(Object.entries(record).map(([key, entry]) => [key, revive(entry)]));
+  }
+  return value;
+}
+
+function freeze(value: unknown): unknown {
+  if (typeof value === "bigint") return { __bigint: value.toString() };
+  if (Array.isArray(value)) return value.map(freeze);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, freeze(entry)]));
+  }
+  return value;
+}
+
+function remember(deployment: Deployment): void {
+  if (rememberedEscrow === deployment.escrow) return;
+  rememberedEscrow = deployment.escrow;
+  const disk = readJson<DiskCache>(logCachePath);
+  if (!disk || !disk.escrow || getAddress(disk.escrow) !== deployment.escrow) return;
+  for (const [key, entry] of Object.entries(disk.entries ?? {})) {
+    if (!key.startsWith(`${deployment.escrow}:`) || logCache.has(key)) continue;
+    logCache.set(key, { logs: revive(entry.logs) as ChainLog[], next: BigInt(entry.next) });
+  }
+}
+
+function persist(deployment: Deployment): void {
+  const prefix = `${deployment.escrow}:`;
+  const entries: DiskCache["entries"] = {};
+  for (const [key, stored] of logCache) {
+    if (!key.startsWith(prefix)) continue;
+    entries[key] = { next: stored.next.toString(), logs: freeze(stored.logs) };
+  }
+  writeJson(logCachePath, { escrow: deployment.escrow, entries });
+}
 const logTimes: number[] = [];
 let logsInFlight = 0;
 
@@ -78,9 +152,16 @@ export function logRanges(start: bigint, latest: bigint, span = LOG_SPAN): Array
   return ranges;
 }
 
-async function scanLogs(key: string, event: unknown, deployment: Deployment): Promise<ChainLog[]> {
+async function scanLogs(
+  key: string,
+  event: unknown,
+  deployment: Deployment,
+  address: Address = deployment.escrow,
+  args?: Record<string, unknown>,
+): Promise<ChainLog[]> {
   const client = publicClient();
   const latest = await client.getBlockNumber();
+  remember(deployment);
   const cached = logCache.get(key) ?? { logs: [], next: BigInt(deployment.deployBlock) };
   if (cached.next > latest) return cached.logs;
 
@@ -91,8 +172,9 @@ async function scanLogs(key: string, event: unknown, deployment: Deployment): Pr
         await acquireLogSlot();
         try {
           return await client.getLogs({
-            address: deployment.escrow,
+            address,
             event: event as never,
+            args: args as never,
             fromBlock: from,
             toBlock: to,
           });
@@ -112,14 +194,21 @@ async function scanLogs(key: string, event: unknown, deployment: Deployment): Pr
 
   const stored = { logs: cached.logs.concat(fresh), next: latest + 1n };
   logCache.set(key, stored);
+  persist(deployment);
   return stored.logs;
 }
 
-function rangedLogs(label: string, event: unknown, deployment: Deployment): Promise<ChainLog[]> {
+function rangedLogs(
+  label: string,
+  event: unknown,
+  deployment: Deployment,
+  address: Address = deployment.escrow,
+  args?: Record<string, unknown>,
+): Promise<ChainLog[]> {
   const key = `${deployment.escrow}:${label}`;
   const existing = logInflight.get(key);
   if (existing) return existing;
-  const job = scanLogs(key, event, deployment).finally(() => {
+  const job = scanLogs(key, event, deployment, address, args).finally(() => {
     if (logInflight.get(key) === job) logInflight.delete(key);
   });
   logInflight.set(key, job);
@@ -202,13 +291,27 @@ const RESULT: Record<string, string> = {
   EXPIRED_REFUNDED: "EXPIRED / REFUNDED",
 };
 
+async function chainEvidence(deployment: Deployment): Promise<Map<string, { compact: CompactEvidence; feedbackTx: string }>> {
+  const logs = await rangedLogs("feedback", feedbackEvent, deployment, monad.erc8004.reputationRegistry, {
+    clientAddress: deployment.agent,
+  });
+  const found = new Map<string, { compact: CompactEvidence; feedbackTx: string }>();
+  for (const log of logs) {
+    const compact = compactFromUri(String(log.args.feedbackURI ?? ""));
+    if (!compact?.orderId) continue;
+    found.set(compact.orderId, { compact, feedbackTx: log.transactionHash });
+  }
+  return found;
+}
+
 export async function listActivity(): Promise<ActivityRow[]> {
   const deployment = loadDeployment();
-  const [created, settled, refunded, expired] = await Promise.all([
+  const [created, settled, refunded, expired, durable] = await Promise.all([
     rangedLogs("created", createdEvent, deployment),
     rangedLogs("settled", settledEvent, deployment),
     rangedLogs("refunded", refundedEvent, deployment),
     rangedLogs("expired", expiredEvent, deployment),
+    chainEvidence(deployment),
   ]);
   const rows = new Map<string, {
     provider: Address;
@@ -250,6 +353,26 @@ export async function listActivity(): Promise<ActivityRow[]> {
   return [...rows.entries()]
     .map(([orderId, row]) => {
       const provider = byAddress.get(row.provider.toLowerCase());
+      const recovered = durable.get(orderId);
+      if (!readJson(evidenceFile(orderId)) && recovered) {
+        writeJson(evidenceFile(orderId), {
+          committed: {
+            ageSec: recovered.compact.ageSec ?? null,
+            freshnessOk: recovered.compact.freshnessOk,
+            latencyMs: recovered.compact.latencyMs,
+            maxAgeSec: recovered.compact.maxAgeSec,
+            schemaOk: recovered.compact.schemaOk,
+            passed: recovered.compact.passed,
+            orderId,
+          },
+          evidenceHashes: recovered.compact.evidenceHashes ?? [],
+          signers: recovered.compact.signers ?? [],
+          verdicts: recovered.compact.verdicts ?? [],
+          settlementTx: recovered.compact.settlementTx,
+          feedbackTx: recovered.feedbackTx,
+          recoveredFrom: "erc8004-feedback-uri",
+        });
+      }
       const evidence = readJson<EvidenceFile>(evidenceFile(orderId));
       const age = evidence?.committed?.ageSec;
       const freshness =

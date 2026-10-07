@@ -26,14 +26,17 @@ let shared: PublicClient | null = null;
 
 export function publicClient(): PublicClient {
   if (!shared) {
-    shared = createPublicClient({ chain: monadChain, transport: http(monad.rpcUrl) });
+    shared = createPublicClient({
+      chain: monadChain,
+      transport: http(monad.rpcUrl, { batch: false, retryCount: 8, retryDelay: 500 }),
+    });
   }
   return shared;
 }
 
 export function walletFrom(privateKey: Hex): { account: Account; wallet: WalletClient } {
   const account = privateKeyToAccount(privateKey);
-  const wallet = createWalletClient({ account, chain: monadChain, transport: http(monad.rpcUrl) });
+  const wallet = createWalletClient({ account, chain: monadChain, transport: http(monad.rpcUrl, { batch: false }) });
   return { account, wallet };
 }
 

@@ -73,11 +73,20 @@ export function Run({ meta }: { meta: Meta | null }) {
   }
 
   const badge = meta?.demoBadge;
+  const faulty = meta?.faultyBadge;
 
   return (
     <main className="px-5 pb-16 pt-24 md:px-8">
-      {badge && (
-        <p className="mb-6 inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{badge}</p>
+      {(badge || faulty) && (
+        <div className="mb-6 flex flex-wrap gap-3">
+          {badge && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{badge}</p>}
+          {faulty && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{faulty}</p>}
+        </div>
+      )}
+      {meta && meta.verifiers.length > 0 && (
+        <p className="mb-6 text-[15px] text-mute">
+          {meta.threshold}-of-{meta.verifiers.length} verifier quorum. Each verifier probes the provider and signs its own verdict. Settlement needs {meta.threshold} matching signatures. If no quorum forms before expiry, anyone can refund the buyer.
+        </p>
       )}
       <div className="grid items-start gap-10 lg:grid-cols-[280px_minmax(0,1fr)_300px]">
         <form className="flex flex-col gap-4" onSubmit={onSubmit}>
@@ -121,16 +130,27 @@ export function Run({ meta }: { meta: Meta | null }) {
           <ol className="flex flex-col gap-4">
             {run?.steps.map((step, index) => {
               const href = externalHref(step.txUrl);
-              const large = step.kind === "refunded" || step.kind === "paid";
+              const large = step.kind === "refunded" || step.kind === "paid" || step.kind === "quorum";
+              const tone = step.title.includes("FAIL") || step.kind === "refunded" ? "text-fail" : "text-pass";
               return (
                 <li key={`${step.at}-${index}`}>
-                  <p className={large ? `text-4xl leading-none tracking-tight md:text-5xl ${step.kind === "refunded" ? "text-fail" : "text-pass"}` : "text-[15px]"}>
+                  <p className={large ? `text-4xl leading-none tracking-tight md:text-5xl ${tone}` : "text-[15px]"}>
                     {step.title}
                   </p>
                   <p className="mt-1 text-[15px] text-mute">
                     {step.detail}
                     {step.orderId ? ` · Order #${step.orderId}` : ""}
                   </p>
+                  {step.verdicts && step.verdicts.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-1 text-[15px]">
+                      {step.verdicts.map((verdict) => (
+                        <li key={verdict.signature}>
+                          #{verdict.index} {verdict.passed ? "PASS" : "FAIL"} · {verdict.latencyMs} ms · {verdict.signature.slice(0, 10)}…{verdict.signature.slice(-4)} · {verdict.signer}
+                          {verdict.faulty ? " · faulty" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {href && step.txHash && (
                     <a className="text-[15px] underline" href={href} target="_blank" rel="noreferrer">
                       {step.txHash}

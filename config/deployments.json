@@ -1,9 +1,15 @@
 {
   "chainId": 10143,
-  "escrow": "0xA7B310f397271D76A005a228A58F9e3035C455BC",
-  "deployTx": "0x2e03a3ac42bb8cefaa645db39cfb740fb07d5dcd43a31de57101f2fb58c00b02",
-  "deployBlock": "68761357",
-  "verifier": "0xe750B7D59fD895e8473df4729132dec46f244ADE",
+  "escrow": "0x2B50654E5B39e44596f06878288F9eEAA79551c3",
+  "deployTx": "0x30cdbad8aeefd9a5ea034a8ecfe3b6769a543aaec266d157e929c501e0d7330d",
+  "deployBlock": "68968605",
+  "threshold": 2,
+  "verifiers": [
+    "0x1F9fFe4b037a1fbe59C73dCB7c158675BdAa1DDF",
+    "0xaC855ff1277474Cd0048E4fF7c503472b8530403",
+    "0x6C431ec14a37449045AA86a4a1D2cC9326Ec22bE"
+  ],
+  "identityOwner": "0xe750B7D59fD895e8473df4729132dec46f244ADE",
   "agent": "0xD1a330426dC19cb6a0F707A3904D63A052bc8EEc",
   "providers": {
     "A": {

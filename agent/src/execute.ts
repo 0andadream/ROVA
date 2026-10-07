@@ -32,6 +32,16 @@ export type RunStep = {
   orderId?: string;
   at: string;
   data?: Record<string, string | number | boolean | null>;
+  verdicts?: VerdictView[];
+};
+
+export type VerdictView = {
+  index: number;
+  signer: string;
+  passed: boolean;
+  latencyMs: number;
+  signature: string;
+  faulty: boolean;
 };
 
 export type RunOrder = {
@@ -225,24 +235,46 @@ async function postFeedback(args: {
   amount: bigint;
   passed: boolean;
   evidenceHash: string;
+  evidenceHashes: string[];
+  signers: string[];
   settlementTx: string;
   latencyMs: number;
   freshnessOk: boolean;
   schemaOk: boolean;
+  ageSec: number | null;
+  maxAgeSec: number;
+  verdicts: VerdictView[];
 }): Promise<{ hash: Hex }> {
   const body = {
     amount: args.amount.toString(),
     escrow: args.deployment.escrow,
     evidenceHash: args.evidenceHash,
+    evidenceHashes: args.evidenceHashes,
     freshnessOk: args.freshnessOk,
     latencyMs: args.latencyMs,
     orderId: args.orderId.toString(),
     passed: args.passed,
     schemaOk: args.schemaOk,
     settlementTx: args.settlementTx,
+    signers: args.signers,
     token: monad.paymentToken.address,
   };
   const feedbackHash = keccakJson(body);
+  const feedbackUri = `data:application/json,${encodeURIComponent(
+    JSON.stringify({
+      ageSec: args.ageSec,
+      evidenceHashes: args.evidenceHashes,
+      freshnessOk: args.freshnessOk,
+      latencyMs: args.latencyMs,
+      maxAgeSec: args.maxAgeSec,
+      orderId: args.orderId.toString(),
+      passed: args.passed,
+      schemaOk: args.schemaOk,
+      settlementTx: args.settlementTx,
+      signers: args.signers,
+      verdicts: args.verdicts,
+    }),
+  )}`;
   const { account, wallet } = walletFrom(requireKey("AGENT_PRIVATE_KEY"));
   if (account.address !== args.deployment.agent) throw new Error("Buyer key does not match the deployment.");
   const owner = (await publicClient().readContract({
@@ -267,7 +299,7 @@ async function postFeedback(args: {
       "rova.settlement",
       args.passed ? "pass" : "fail",
       args.provider.url,
-      `${gatewayBase()}/evidence/${args.orderId}`,
+      feedbackUri,
       feedbackHash,
     ],
   });
@@ -429,6 +461,9 @@ async function runTask(run: RunRecord): Promise<RunRecord> {
         ageSec?: number | null;
         reasons?: string[];
         response?: unknown;
+        evidenceHashes?: string[];
+        signers?: string[];
+        verdicts?: VerdictView[];
       };
       if (!gateway.ok || !payload.settlementTx || !payload.status) {
         throw new Error(payload.error ?? `Verifier did not settle order ${orderId}.`);
@@ -439,6 +474,21 @@ async function runTask(run: RunRecord): Promise<RunRecord> {
         throw new Error(`Chain status ${confirmedStatus} does not match the verifier report ${payload.status}.`);
       }
 
+      const verdicts = payload.verdicts ?? [];
+      if (verdicts.length > 0) {
+        const agree = verdicts.filter((verdict) => verdict.passed === Boolean(payload.passed)).length;
+        const side = payload.passed ? "PASS" : "FAIL";
+        const outcome = confirmedStatus === "SETTLED" ? "paid" : "refunded";
+        push(run, {
+          kind: "quorum",
+          title: `${agree} of ${verdicts.length} ${side}, ${outcome}`,
+          detail: verdicts
+            .map((verdict) => `#${verdict.index} ${verdict.passed ? "PASS" : "FAIL"} ${verdict.signer}`)
+            .join(" · "),
+          orderId: orderId.toString(),
+          verdicts,
+        });
+      }
       push(run, {
         kind: "response",
         title: "Provider responded",
@@ -516,10 +566,15 @@ async function runTask(run: RunRecord): Promise<RunRecord> {
           amount: confirmed.amount,
           passed: confirmedStatus === "SETTLED",
           evidenceHash: order.evidenceHash,
+          evidenceHashes: payload.evidenceHashes ?? [],
+          signers: payload.signers ?? [],
           settlementTx: payload.settlementTx,
           latencyMs: payload.latencyMs ?? 0,
           freshnessOk: Boolean(payload.freshnessOk),
           schemaOk: Boolean(payload.schemaOk),
+          ageSec: payload.ageSec ?? null,
+          maxAgeSec: run.input.maxAgeSec,
+          verdicts,
         });
         push(run, {
           kind: "reputation",

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import {ECDSA} from "./ECDSA.sol";
+
 /// @title RovaEscrow
-/// @notice ERC-20 escrow for one Rova order. The verifier is a single trusted key.
-///         Latency, freshness, and schema are stored so the order commits to them.
-///         The contract cannot see the HTTP response, so only that verifier may settle.
+/// @notice ERC-20 escrow for one Rova order. Settlement requires a k-of-n verifier quorum.
+///         Each verifier signs Verdict(orderId, passed, evidenceHash). Anyone may relay the
+///         signatures. If no quorum arrives before expiresAt, anyone can refund the buyer.
 contract RovaEscrow {
     enum OrderStatus {
         NONE,
@@ -31,7 +33,13 @@ contract RovaEscrow {
     error InvalidProvider();
     error InvalidToken();
     error InvalidExpiry();
+    error InvalidVerifierSet();
+    error InvalidThreshold();
     error NotVerifier();
+    error BelowThreshold();
+    error UnsortedSigners();
+    error DuplicateSigner();
+    error QuorumShape();
     error InvalidOrder();
     error Expired();
     error NotExpired();
@@ -49,16 +57,35 @@ contract RovaEscrow {
         bytes32 schemaHash,
         uint256 expiresAt
     );
-    event OrderSettled(uint256 indexed id, address indexed provider, uint256 amount, bytes32 evidenceHash);
-    event OrderRefunded(uint256 indexed id, address indexed agent, uint256 amount, bytes32 evidenceHash);
+    event OrderSettled(
+        uint256 indexed id,
+        address indexed provider,
+        uint256 amount,
+        bytes32[] evidenceHashes,
+        address[] signers
+    );
+    event OrderRefunded(
+        uint256 indexed id,
+        address indexed agent,
+        uint256 amount,
+        bytes32[] evidenceHashes,
+        address[] signers
+    );
     event OrderExpiredRefunded(uint256 indexed id, address indexed agent, uint256 amount);
 
-    address public immutable verifier;
-    address public immutable paymentToken;
+    bytes32 private constant VERDICT_TYPEHASH = keccak256("Verdict(uint256 orderId,bool passed,bytes32 evidenceHash)");
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
-    uint256 public nextOrderId = 1;
+    address public immutable paymentToken;
+    uint8 public immutable threshold;
+    bytes32 public immutable domainSeparator;
+
+    address[] private _verifiers;
+    mapping(address verifier => bool member) public isVerifier;
     mapping(uint256 id => Order order) private _orders;
 
+    uint256 public nextOrderId = 1;
     uint256 private _locked = 1;
 
     modifier nonReentrant() {
@@ -68,11 +95,37 @@ contract RovaEscrow {
         _locked = 1;
     }
 
-    constructor(address verifier_, address paymentToken_) {
-        if (verifier_ == address(0)) revert NotVerifier();
+    /// @dev The verifier set and threshold are fixed here. There is no setter.
+    constructor(address[] memory verifiers_, uint8 threshold_, address paymentToken_) {
+        uint256 count = verifiers_.length;
+        if (count == 0 || count > 255) revert InvalidVerifierSet();
+        if (threshold_ < 1 || threshold_ > count) revert InvalidThreshold();
         if (paymentToken_ == address(0)) revert InvalidToken();
-        verifier = verifier_;
+        for (uint256 i = 0; i < count; i++) {
+            address verifier = verifiers_[i];
+            if (verifier == address(0) || isVerifier[verifier]) revert InvalidVerifierSet();
+            isVerifier[verifier] = true;
+            _verifiers.push(verifier);
+        }
         paymentToken = paymentToken_;
+        threshold = threshold_;
+        domainSeparator = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("RovaEscrow")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    function verifierCount() external view returns (uint256) {
+        return _verifiers.length;
+    }
+
+    function verifierAt(uint256 index) external view returns (address) {
+        return _verifiers[index];
     }
 
     function getOrder(uint256 id) external view returns (Order memory) {
@@ -111,24 +164,50 @@ contract RovaEscrow {
         emit OrderCreated(id, msg.sender, provider, token, amount, maxLatencyMs, maxAgeSec, schemaHash, expiresAt);
     }
 
-    /// @dev passed pays the provider. failed returns the funds to the agent. Same transaction either way.
-    function settle(uint256 id, bool passed, bytes32 evidenceHash) external nonReentrant {
-        if (msg.sender != verifier) revert NotVerifier();
+    /// @notice Anyone can relay a quorum. Signature i signs Verdict(id, passed, evidenceHashes[i]).
+    ///         Signers must be strictly ascending. Every signature must agree on `passed`.
+    function settle(uint256 id, bool passed, bytes32[] calldata evidenceHashes, bytes[] calldata signatures)
+        external
+        nonReentrant
+    {
         Order storage order = _orders[id];
         if (order.status != OrderStatus.FUNDED) revert InvalidOrder();
         if (block.timestamp > order.expiresAt) revert Expired();
 
+        uint256 count = signatures.length;
+        if (evidenceHashes.length != count) revert QuorumShape();
+        if (count < threshold) revert BelowThreshold();
+
+        address[] memory signers = new address[](count);
+        address previous = address(0);
+        for (uint256 i = 0; i < count; i++) {
+            bytes32 digest = keccak256(
+                abi.encodePacked(
+                    "\x19\x01",
+                    domainSeparator,
+                    keccak256(abi.encode(VERDICT_TYPEHASH, id, passed, evidenceHashes[i]))
+                )
+            );
+            address signer = ECDSA.recover(digest, signatures[i]);
+            if (!isVerifier[signer]) revert NotVerifier();
+            if (signer == previous) revert DuplicateSigner();
+            if (signer < previous) revert UnsortedSigners();
+            signers[i] = signer;
+            previous = signer;
+        }
+
         if (passed) {
             order.status = OrderStatus.SETTLED;
             _push(order.token, order.provider, order.amount);
-            emit OrderSettled(id, order.provider, order.amount, evidenceHash);
+            emit OrderSettled(id, order.provider, order.amount, evidenceHashes, signers);
         } else {
             order.status = OrderStatus.REFUNDED;
             _push(order.token, order.agent, order.amount);
-            emit OrderRefunded(id, order.agent, order.amount, evidenceHash);
+            emit OrderRefunded(id, order.agent, order.amount, evidenceHashes, signers);
         }
     }
 
+    /// @notice Liveness fail-safe. If the quorum never arrives, anyone refunds the buyer after expiry.
     function refundExpired(uint256 id) external nonReentrant {
         Order storage order = _orders[id];
         if (order.status != OrderStatus.FUNDED) revert InvalidOrder();

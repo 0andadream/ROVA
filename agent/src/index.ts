@@ -2,11 +2,12 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { identityAbi } from "../../config/abis.ts";
-import { publicClient } from "../../config/clients.ts";
+import { assertNetwork, publicClient } from "../../config/clients.ts";
 import { loadDeployment, type Deployment } from "../../config/env.ts";
 import { explain } from "../../config/explain.ts";
 import { addressUrl, monad, paymentPath, TRUST, txUrl } from "../../config/monad.ts";
-import { AGENT_PORT, DEMO_BADGE, providerUrl, SEEDS } from "../../config/providers.ts";
+import { AGENT_PORT, DEMO_BADGE, faultyBadge, providerUrl, SEEDS } from "../../config/providers.ts";
+import { assertEscrowMatchesDeployment } from "../../config/quorum.ts";
 import { ETH_USD_SCHEMA } from "../../config/task.ts";
 import { listActivity } from "./chain.ts";
 import { currentRankings, readRun, startRun, type TaskInput } from "./execute.ts";
@@ -62,8 +63,10 @@ app.get("/meta", async (c) => {
       decimals: monad.paymentToken.decimals,
       url: addressUrl(monad.paymentToken.address),
     },
-    verifier: deployment?.verifier ?? null,
-    verifierUrl: deployment ? addressUrl(deployment.verifier) : null,
+    threshold: deployment?.threshold ?? null,
+    verifiers: (deployment?.verifiers ?? []).map((address) => ({ address, url: addressUrl(address) })),
+    identityOwner: deployment?.identityOwner ?? null,
+    identityOwnerUrl: deployment ? addressUrl(deployment.identityOwner) : null,
     agent: deployment?.agent ?? null,
     agentUrl: deployment ? addressUrl(deployment.agent) : null,
     registries: {
@@ -84,6 +87,7 @@ app.get("/meta", async (c) => {
     trust: TRUST,
     demoMode: stale,
     demoBadge: stale ? DEMO_BADGE : null,
+    faultyBadge: faultyBadge(),
     providers: SEEDS.map((seed) => {
       const saved = deployment?.providers[seed.id];
       return {
@@ -114,7 +118,12 @@ app.get("/rankings", async (c) => {
 app.get("/activity", async (c) => {
   try {
     const stale = await demoMode();
-    return c.json({ demoMode: stale, demoBadge: stale ? DEMO_BADGE : null, rows: await listActivity() });
+    return c.json({
+      demoMode: stale,
+      demoBadge: stale ? DEMO_BADGE : null,
+      faultyBadge: faultyBadge(),
+      rows: await listActivity(),
+    });
   } catch (error) {
     return c.json({ error: explain(error) }, 503);
   }
@@ -168,6 +177,15 @@ app.post("/run", async (c) => {
 });
 
 const port = Number(process.env.AGENT_PORT ?? AGENT_PORT);
+try {
+  await assertNetwork();
+  await assertEscrowMatchesDeployment();
+} catch (error) {
+  console.error(explain(error));
+  process.exit(1);
+}
 serve({ fetch: app.fetch, hostname: "127.0.0.1", port }, (info) => {
   console.log(`agent http://127.0.0.1:${info.port}`);
+  const badge = faultyBadge();
+  if (badge) console.log(badge);
 });

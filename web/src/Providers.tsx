@@ -16,7 +16,10 @@ export function Providers({ meta }: { meta: Meta | null }) {
     <main className="px-5 pb-16 pt-24 md:px-8">
       <h1 className="text-[26px]">Providers</h1>
       <p className="mt-4 max-w-2xl text-[15px] text-mute">Demo providers are seeded by the Rova team. This is not a public marketplace.</p>
-      {meta?.demoBadge && <p className="mt-4 inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{meta.demoBadge}</p>}
+      <div className="mt-4 flex flex-wrap gap-3">
+        {meta?.demoBadge && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{meta.demoBadge}</p>}
+        {meta?.faultyBadge && <p className="inline-block rounded-full border border-fail px-3 py-1 text-[15px] text-fail">{meta.faultyBadge}</p>}
+      </div>
       {error && <p className="mt-4 text-[15px] text-fail">{error}</p>}
       <div className="mt-8 grid gap-6 md:grid-cols-3">
         {(rankings?.providers ?? []).map((provider) => {

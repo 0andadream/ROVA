@@ -6,7 +6,9 @@ export type Meta = {
   escrow: string | null;
   escrowUrl: string | null;
   token: { symbol: string; address: string; url: string; decimals: number };
-  verifier: string | null;
+  threshold: number | null;
+  verifiers: { address: string; url: string }[];
+  identityOwner: string | null;
   agent: string | null;
   agentUrl: string | null;
   registries: { identity: string; identityUrl: string; reputation: string; reputationUrl: string; version: string };
@@ -16,6 +18,7 @@ export type Meta = {
   trust: { verifier: string; truth: string; providers: string; reputation: string };
   demoMode: boolean;
   demoBadge: string | null;
+  faultyBadge: string | null;
   providers: {
     id: string;
     name: string;
@@ -59,6 +62,14 @@ export type RunStep = {
   txUrl?: string;
   orderId?: string;
   at: string;
+  verdicts?: {
+    index: number;
+    signer: string;
+    passed: boolean;
+    latencyMs: number;
+    signature: string;
+    faulty: boolean;
+  }[];
 };
 
 export type RunRecord = {
@@ -111,7 +122,12 @@ export function loadRankings(maxPrice: string, budget: string): Promise<Rankings
   return read(`/api/rankings?${query}`);
 }
 
-export function loadActivity(): Promise<{ demoMode: boolean; demoBadge: string | null; rows: ActivityRow[] }> {
+export function loadActivity(): Promise<{
+  demoMode: boolean;
+  demoBadge: string | null;
+  faultyBadge: string | null;
+  rows: ActivityRow[];
+}> {
   return read("/api/activity");
 }
 
