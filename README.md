@@ -243,5 +243,3 @@ The suite is the cap, the refund, the expiry, and the naive overshoot. Names are
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-Grok wrote this repository from a short brief. The Foundry tests and the Anvil demo were run on this machine. This is a demonstration, not an audit.
