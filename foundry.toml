@@ -7,6 +7,7 @@ optimizer = true
 optimizer_runs = 200
 evm_version = "cancun"
 ffi = false
+remappings = ["forge-std/=lib/forge-std/src/"]
 
 [rpc_endpoints]
 monad_testnet = "https://testnet-rpc.monad.xyz"

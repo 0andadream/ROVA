@@ -1,8 +1,10 @@
 node_modules
-web/node_modules
-web/dist
-.git
+out
+cache
+broadcast
+lib
 .env
-data
-contracts
+web/config.json
+web/snapshot.json
+.git
 *.log

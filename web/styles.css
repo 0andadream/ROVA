@@ -1,0 +1,201 @@
+:root {
+  --paper: #000;
+  --ink: #fff;
+  --mute: #a3a3a3;
+  --line: #262626;
+  --pass: #e2ff57;
+  --fail: #ff3b30;
+  --available: #fff;
+  --reserved: #a3a3a3;
+  --spent: #e2ff57;
+  --over: #ff3b30;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+
+body {
+  font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+header, main, footer {
+  width: min(980px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+header { padding: 28px 0 8px; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.brand svg { width: 28px; height: 28px; flex: none; }
+
+.brand span {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0.22em;
+}
+
+.lede {
+  margin: 18px 0 0;
+  font-size: 28px;
+  line-height: 1.15;
+  max-width: 18em;
+}
+
+.meta, .panel-head p, .figures, .legend, footer p, .card p {
+  color: var(--mute);
+}
+
+.meta { margin: 8px 0 0; }
+
+.score {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.card, .panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h2, .panel h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.big {
+  margin: 10px 0 0;
+  font-size: 48px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.card.fail .big { color: var(--fail); }
+.card.pass .big { color: var(--pass); }
+
+.card p { margin: 8px 0 0; }
+
+.panel { margin-top: 12px; }
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.panel-head p { margin: 0; text-align: right; }
+
+.track {
+  position: relative;
+  display: flex;
+  height: 28px;
+  margin-top: 14px;
+  background: #111;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.track i { display: block; height: 100%; }
+
+.track .available { background: var(--available); }
+.track .reserved { background: var(--reserved); }
+.track .spent { background: var(--spent); }
+.track .over { background: var(--over); }
+
+.tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #000;
+  box-shadow: 0 0 0 1px #fff;
+}
+
+.card .track { height: 14px; }
+
+.figures { margin: 10px 0 0; font-variant-numeric: tabular-nums; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li { display: flex; align-items: center; gap: 6px; }
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.swatch.available { background: var(--available); }
+.swatch.reserved { background: var(--reserved); }
+.swatch.spent { background: var(--spent); }
+.swatch.over { background: var(--over); }
+
+.rows { margin-top: 8px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1.1fr) 88px minmax(0, 1.3fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.row:first-child { border-top: 0; }
+
+.kind { font-size: 12px; letter-spacing: 0.06em; }
+
+.kind.refused, .kind.naive { color: var(--fail); }
+.kind.commit, .kind.reserve { color: var(--pass); }
+.kind.fund, .kind.reset, .kind.release { color: var(--mute); }
+
+.tx, .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.tx { color: var(--ink); }
+
+.empty {
+  color: var(--mute);
+  margin: 8px 0 0;
+}
+
+footer { padding: 18px 0 32px; }
+
+@media (max-width: 720px) {
+  header, main, footer { width: min(980px, calc(100% - 24px)); }
+  .lede { font-size: 22px; }
+  .score { grid-template-columns: 1fr; }
+  .big { font-size: 40px; }
+  .panel-head { display: block; }
+  .panel-head p { text-align: left; margin-top: 4px; }
+  .row { grid-template-columns: 78px minmax(0, 1fr) 72px; }
+  .row .tx { grid-column: 1 / -1; }
+}

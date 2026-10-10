@@ -1,19 +1,52 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ROVA</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header>
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square">
+            <path d="M16 4v24M4 16h24M7.5 7.5l17 17M24.5 7.5l-17 17" />
+          </g>
+        </svg>
+        <span>ROVA</span>
+      </div>
+      <p class="lede" id="lede">One shared pool. Many agents. One cap.</p>
+      <p class="meta" id="meta">The pool pays the vendor. An agent never holds the funds.</p>
+    </header>
+    <main>
+      <section class="score" id="score" hidden></section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Chain now</h2>
+          <p id="chain-note"></p>
+        </div>
+        <div id="bar"></div>
+        <p class="figures" id="figures"></p>
+        <ul class="legend">
+          <li><i class="swatch available"></i>Available</li>
+          <li><i class="swatch reserved"></i>Reserved</li>
+          <li><i class="swatch spent"></i>Spent</li>
+          <li><i class="swatch over"></i>Past the cap</li>
+        </ul>
+      </section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Reservations and refusals</h2>
+          <p id="list-note"></p>
+        </div>
+        <div class="rows" id="rows"></div>
+      </section>
+    </main>
+    <footer>
+      <p>rUSD is a mock token with 18 decimals. It has no value. Amounts on this page are units.</p>
+    </footer>
+    <script src="/app.js"></script>
   </body>
 </html>
