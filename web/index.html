@@ -8,45 +8,72 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <div class="brand">
+    <div class="top">
+      <a class="brand" href="/">
         <svg viewBox="0 0 32 32" aria-hidden="true">
           <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square">
             <path d="M16 4v24M4 16h24M7.5 7.5l17 17M24.5 7.5l-17 17" />
           </g>
         </svg>
         <span>ROVA</span>
-      </div>
-      <p class="lede" id="lede">One shared pool. Many agents. One cap.</p>
-      <p class="meta" id="meta">The pool pays the vendor. An agent never holds the funds.</p>
+      </a>
+      <nav class="nav">
+        <a href="/" aria-current="page">Built</a>
+        <a href="/how">How</a>
+        <a href="/run">Run</a>
+      </nav>
+    </div>
+    <header class="page-head">
+      <p class="kicker">What's built</p>
+      <h1>Twenty agents. One pool. A cap that holds.</h1>
+      <p class="lede">The pool pays the vendor. An agent holds none of the funds. A spend is allowed only after the contract reserves it.</p>
     </header>
     <main>
-      <section class="score" id="score" hidden></section>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Chain now</h2>
-          <p id="chain-note"></p>
-        </div>
-        <div id="bar"></div>
-        <p class="figures" id="figures"></p>
-        <ul class="legend">
-          <li><i class="swatch available"></i>Available</li>
-          <li><i class="swatch reserved"></i>Reserved</li>
-          <li><i class="swatch spent"></i>Spent</li>
-          <li><i class="swatch over"></i>Past the cap</li>
-        </ul>
+      <section class="score">
+        <article class="card">
+          <h2>The pool</h2>
+          <p class="big">1</p>
+          <p>One contract, <code>Rova</code>. The cap is fixed at construction. <code>reserve</code> locks funds. <code>commit</code> pays the vendor and leaves the unused amount in the pool.</p>
+        </article>
+        <article class="card">
+          <h2>The token</h2>
+          <p class="big">rUSD</p>
+          <p>A public-mint ERC-20 with 18 decimals. The demo funds 30 against a cap of 10, so a broken spend has tokens past the policy. The token has no value.</p>
+        </article>
       </section>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Reservations and refusals</h2>
-          <p id="list-note"></p>
-        </div>
-        <div class="rows" id="rows"></div>
+      <section class="score">
+        <article class="card fail">
+          <h2>Check, then pay</h2>
+          <p class="big">20</p>
+          <p>Twenty agents each spend 1 after reading the token balance. All twenty pay. The cap was 10.</p>
+        </article>
+        <article class="card pass">
+          <h2>Reserve, then pay</h2>
+          <p class="big">10</p>
+          <p>The same twenty agents lock 1 first. Ten fit. Ten are refused. The vendor is paid 10.</p>
+        </article>
+      </section>
+      <section class="panel prose">
+        <h2>Three pages</h2>
+        <ol class="steps">
+          <li>
+            <strong>Built</strong>
+            <p>This page. The pool, the token, and the two results.</p>
+          </li>
+          <li>
+            <strong><a href="/how">How</a></strong>
+            <p>The order of a run: fund, the naive overshoot, reset, reserve, refuse, commit. The calls are listed there.</p>
+          </li>
+          <li>
+            <strong><a href="/run">Run</a></strong>
+            <p>The measured Anvil run. Hashes, refusals, and the bar that stops on the cap.</p>
+          </li>
+        </ol>
+        <p class="jump"><a href="/how">Read how it works</a><a href="/run">Open the run</a></p>
       </section>
     </main>
     <footer>
-      <p>rUSD is a mock token with 18 decimals. It has no value. Amounts on this page are units.</p>
+      <p>Monad testnet, chain id 10143. The numbers on <a href="/run">Run</a> are the recorded Anvil demo.</p>
     </footer>
-    <script src="/app.js"></script>
   </body>
 </html>

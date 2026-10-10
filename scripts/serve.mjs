@@ -62,8 +62,8 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    let rel = decodeURIComponent(url.pathname);
-    if (rel === "/") rel = "/index.html";
+    const pages = { "/": "/index.html", "/how": "/how.html", "/run": "/run.html" };
+    let rel = pages[url.pathname] || decodeURIComponent(url.pathname);
     rel = rel.replace(/^\/+/, "");
     if (!rel || rel.includes("..")) {
       res.writeHead(403);

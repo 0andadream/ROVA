@@ -6,8 +6,7 @@ Rova is a shared payment pool. Every agent spends from the same balance, and the
 
 The payment token is rUSD, an 18-decimal ERC-20 with a public mint. The demo funds the pool with 30 and sets the cap at 10. That slack is the point: the naive path can move real tokens past the cap, and the reserve path stops at 10.
 
-* **Live dashboard:** https://rova-production-f873.up.railway.app
-* **The measured run:** the same page. Naive spent 20. Reserve mode accepted 10, refused 10, and finished at 10.
+* **Live site:** https://rova-production-f873.up.railway.app has three pages. [Built](https://rova-production-f873.up.railway.app/) names the pieces. [How](https://rova-production-f873.up.railway.app/how) walks a spend. [Run](https://rova-production-f873.up.railway.app/run) is the measured result: naive spent 20, reserve mode accepted 10 and refused 10.
 * **Chain:** Monad testnet, chain id 10143. RPC [`https://testnet-rpc.monad.xyz`](https://testnet-rpc.monad.xyz). Explorer [`https://testnet.monadscan.com`](https://testnet.monadscan.com)
 
 ---
@@ -79,7 +78,7 @@ One Solidity contract holds the pool. A Node script runs both modes. A single pa
 | rUSD | Public-mint ERC-20, 18 decimals, symbol `rUSD` | `src/MockToken.sol` |
 | Pool | Cap, reserve, commit, release, naive spend, reset | `src/Rova.sol` |
 | Demo | Twenty agents, naive then reserved, prints every hash | `scripts/demo.mjs` |
-| Page | Scoreboard, bar, reservations and refusals | `web/` |
+| Pages | Built, How, and the measured run | `web/index.html`, `web/how.html`, `web/run.html` |
 | Server | Serves the page and proxies `/rpc` at the pool | `scripts/serve.mjs` |
 
 The reserver is `msg.sender` of `reserve`. That address, or the owner, can `commit` and `release`. After expiry, `release` is open to anyone. The demo uses one operator key and passes each agent address as an argument. The agent never custodies the token.
@@ -120,7 +119,7 @@ Each row is enforced in `src/Rova.sol` and covered in `test/Rova.t.sol`.
 
 ## The measured run
 
-Local Anvil, 10 October 2026. Cap 10. Float 30. Twenty agents, 1 each. The dashboard at https://rova-production-f873.up.railway.app serves this run from `web/recording.json`. Every hash is in that file and on the page.
+Local Anvil, 10 October 2026. Cap 10. Float 30. Twenty agents, 1 each. The [Run](https://rova-production-f873.up.railway.app/run) page serves this result from `web/recording.json`. Every hash is in that file and on the page.
 
 | Step | Result |
 | --- | --- |
@@ -141,7 +140,13 @@ Those addresses belong to that Anvil deployment. `pnpm demo` prints a fresh set 
 
 ## The screen
 
-One page.
+| Page | What it is for |
+| --- | --- |
+| `/` | What was built: the pool, rUSD, and the two results |
+| `/how` | The order of a run, and the calls |
+| `/run` | The measured run |
+
+On `/run`:
 
 | Region | What it shows |
 | --- | --- |
@@ -160,7 +165,7 @@ With a chain attached, the bar and the list follow the logs. The hosted page has
 | Token | rUSD, `src/MockToken.sol` |
 | Chain | Monad testnet, chain id 10143. The measured run is Anvil, chain id 31337 |
 | Demo | Node 20, viem, `scripts/demo.mjs` |
-| Page | One HTML file, no build, no CDN |
+| Pages | Three HTML files, no build, no CDN |
 | Host | Railway, `https://rova-production-f873.up.railway.app` |
 | Tests | `forge test`, 16 tests in `test/Rova.t.sol` |
 
@@ -225,7 +230,7 @@ The suite is the cap, the refund, the expiry, and the naive overshoot. Names are
 | `test/Rova.t.sol` | The Foundry suite |
 | `scripts/demo.mjs` | The twenty-agent run |
 | `scripts/serve.mjs` | The page and the RPC proxy |
-| `web/` | `index.html`, `app.js`, `styles.css`, the recorded run |
+| `web/` | Built, How, Run, and the recorded run |
 | `web/recording.json` | The Anvil run the hosted page shows |
 | `foundry.toml` | Solidity 0.8.28, Cancun, Monad RPC alias |
 | `Dockerfile` | The hosted page |
@@ -235,7 +240,7 @@ The suite is the cap, the refund, the expiry, and the naive overshoot. Names are
 ## Known limitations
 
 * **rUSD is a demo token.** Anyone can mint it. It has no value and no issuer. The float of 30 exists so the naive path has tokens past the cap of 10.
-* **The hosted page is the recording.** https://rova-production-f873.up.railway.app reads `web/recording.json`. It has no chain attached, and the page says so.
+* **Run is the recording.** https://rova-production-f873.up.railway.app/run reads `web/recording.json`. It has no chain attached, and the page says so.
 * **The measured contracts are on Anvil.** The addresses above come from that local node. A Monad testnet create of the two contracts was priced at about 0.155 MON at 102 gwei on 10 October 2026, which was more MON than the wallets in use held. No testnet transaction was sent.
 * **One key sends every agent transaction.** The agent is an argument. The reserver is the sender. That matches a single operator running the demo.
 * **Expiry is reclaimed by walking the reservations.** Views skip expired rows. The next state-changing call releases them. The demo has a few dozen rows.

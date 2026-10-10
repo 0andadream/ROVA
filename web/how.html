@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How · ROVA</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="top">
+      <a class="brand" href="/">
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square">
+            <path d="M16 4v24M4 16h24M7.5 7.5l17 17M24.5 7.5l-17 17" />
+          </g>
+        </svg>
+        <span>ROVA</span>
+      </a>
+      <nav class="nav">
+        <a href="/">Built</a>
+        <a href="/how" aria-current="page">How</a>
+        <a href="/run">Run</a>
+      </nav>
+    </div>
+    <header class="page-head">
+      <p class="kicker">How a spend is allowed</p>
+      <h1>The cap moves inside the lock.</h1>
+      <p class="quote">The cap changes only inside the transaction that locks the funds.</p>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>The run</h2>
+        <ol class="steps">
+          <li>
+            <strong>1. Deploy</strong>
+            <p>rUSD is minted by anyone. Rova is constructed with that token and a cap of 10.</p>
+          </li>
+          <li>
+            <strong>2. Fund 30</strong>
+            <p><code>fund</code> pulls tokens into the pool. The balance is the float. The cap is the policy.</p>
+          </li>
+          <li>
+            <strong>3. Naive mode</strong>
+            <p>Twenty agents call <code>spendNaive</code> for 1. Each call sees unreserved tokens and pays. Spent becomes 20. The vendor receives 20.</p>
+          </li>
+          <li>
+            <strong>4. Reset</strong>
+            <p>The owner pulls the leftover tokens and the counters return to zero. The log stays, so the overshoot is still visible.</p>
+          </li>
+          <li>
+            <strong>5. Reserve</strong>
+            <p>The pool is funded with 30 again. Twenty agents call <code>tryReserve</code> for 1. Ten lock. Ten emit <code>Refused</code>.</p>
+          </li>
+          <li>
+            <strong>6. Commit</strong>
+            <p>Each accepted reservation pays 1 to the vendor. Spent is 10. A commit can pay less than it reserved. The difference stays in the pool.</p>
+          </li>
+          <li>
+            <strong>7. Expiry</strong>
+            <p>A reservation has an expiry. After that time anyone can <code>release</code> it, and the views treat it as free so a crashed agent cannot hold the cap.</p>
+          </li>
+        </ol>
+      </section>
+      <section class="panel">
+        <h2>Calls</h2>
+        <div class="calls">
+          <div class="call"><strong>fund</strong><span>Pull rUSD into the pool.</span></div>
+          <div class="call"><strong>reserve</strong><span>Lock an amount, or revert when the cap has no room.</span></div>
+          <div class="call"><strong>tryReserve</strong><span>The same check. On a shortage, emit Refused and return 0.</span></div>
+          <div class="call"><strong>commit</strong><span>Pay the vendor. Leave the unused part of the reservation in the pool.</span></div>
+          <div class="call"><strong>release</strong><span>Return a reservation to the cap. After expiry, anyone may call it.</span></div>
+          <div class="call"><strong>spendNaive</strong><span>The broken path. It pays unreserved tokens and ignores the cap.</span></div>
+          <div class="call"><strong>reset</strong><span>Zero the counters. A live reservation blocks it.</span></div>
+        </div>
+        <p class="jump"><a href="/run">See the measured run</a></p>
+      </section>
+    </main>
+    <footer>
+      <p>The reserver, or the owner, commits and releases. The agent address is an argument. The agent holds none of the rUSD.</p>
+    </footer>
+  </body>
+</html>
